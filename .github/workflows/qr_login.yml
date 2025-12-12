@@ -12,7 +12,6 @@ jobs:
   run_qr_login:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
       - name: Checkout do repositório
         uses: actions/checkout@v4
@@ -30,6 +29,7 @@ jobs:
       - name: Instalar Chrome + ChromeDriver (automático)
         uses: browser-actions/setup-chrome@latest
         id: chrome
+
       - name: Ver versão do Chrome instalada
         run: ${{ steps.chrome.outputs.chrome-path }} --version
 
@@ -40,7 +40,7 @@ jobs:
           SESSION_ID: ${{ inputs.session_id }}
         run: |
           echo "Iniciando login QR para sessão: $SESSION_ID"
-          python main.py "$SESSION_ID"
+          python tiktok_qr_actions.py "$SESSION_ID"
 
       - name: Finalizado
         if: always()
