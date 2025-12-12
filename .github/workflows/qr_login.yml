@@ -1,10 +1,11 @@
+# .github/workflows/tiktok-qr-login.yml
 name: TikTok QR Login Automation
 
 on:
   workflow_dispatch:
     inputs:
       session_id:
-        description: 'ID da sessão no Supabase (vem do Edge Function)'
+        description: 'ID da sessão no Supabase (vem da Edge Function)'
         required: true
         type: string
 
@@ -17,33 +18,33 @@ jobs:
       - name: Checkout do repositório
         uses: actions/checkout@v4
 
-      - name: Configurar Python
+      - name: Configurar Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Instalar dependências Python
+      - name: Instalar dependências (com undetected-chromedriver)
         run: |
           python -m pip install --upgrade pip
-          pip install selenium supabase
+          pip install undetected-chromedriver selenium supabase-py
 
-      - name: Instalar Chrome + ChromeDriver
+      - name: Instalar Chrome mais recente (necessário pro undetected-chromedriver)
         uses: browser-actions/setup-chrome@latest
         id: chrome
 
-      - name: Ver versão do Chrome
+      - name: Mostrar versão do Chrome instalado
         run: ${{ steps.chrome.outputs.chrome-path }} --version
 
-      - name: Executar script de login QR
+      - name: Executar login QR no TikTok
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SESSION_ID: ${{ inputs.session_id }}
         run: |
-          echo "Iniciando login QR para sessão: $SESSION_ID"
+          echo "Iniciando login para sessão: $SESSION_ID"
           python main.py "$SESSION_ID"
 
-      - name: Workflow finalizado
+      - name: Workflow concluído
         if: always()
-        run: echo "Workflow concluído para sessão ${{ inputs.session_id }}"
-
+        run: |
+          echo "Login finalizado para sessão ${{ inputs.session_id }}"
