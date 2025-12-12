@@ -1,8 +1,8 @@
-# main.py → Versão FINAL para GitHub Actions + Windows (2025)
-import os
-import sys
+# tiktok_qr_actions.py → VERSÃO FINAL CORRIGIDA E FUNCIONANDO (2025)
 import time
 import base64
+import sys
+import os
 from datetime import datetime, timedelta
 
 from selenium import webdriver
@@ -11,123 +11,182 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-from supabase import create_client
+from supabase import create_client, Client
 
-# Config via variáveis de ambiente (seguras no Actions)
+# ========================= CONFIG =========================
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")
+
 TABLE_NAME = "tiktok_sessions"
 TIMEOUT_MINUTES = 5
+# =========================================================
 
 if len(sys.argv) != 2:
-    print("Erro: session_id não fornecido")
+    print("Uso: python tiktok_qr_actions.py <row_id>")
     sys.exit(1)
 
 row_id = sys.argv[1]
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# === Configuração do Chrome (funciona no Actions e local) ===
+# ==================== CONFIGURA CHROME ====================
 options = webdriver.ChromeOptions()
 
+# Detecta se está no GitHub Actions
 if os.getenv("GITHUB_ACTIONS") == "true":
-    print("Modo GitHub Actions → headless")
+    print("GitHub Actions detectado → modo headless")
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
 else:
-    print("Modo local → janela visível")
+    print("Rodando localmente → janela visível")
     options.add_argument("--start-maximized")
 
+# Anti-detecção (funciona em qualquer lugar)
 options.add_argument("--disable-blink-features=AutomationControlled")
 options.add_experimental_option("excludeSwitches", ["enable-automation"])
 options.add_experimental_option("useAutomationExtension", False)
 
 driver = webdriver.Chrome(options=options)
-driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => false})")
-
-deadline = datetime.utcnow() + timedelta(minutes=TIMEOUT_MINUTES)
+driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => false});")
 
 def update(data: dict):
+    """Atualiza Supabase com menos código"""
     data["id"] = row_id
     data["updated_at"] = datetime.utcnow().isoformat()
-    if data.get("status") in ["expired", "error"]:
+    
+    # Se o status for 'expired' ou 'error', define closed_at para agora
+    if data.get('status') in ['expired', 'error']:
         data["closed_at"] = datetime.utcnow().isoformat()
+        print("Cooldown de 2 horas ativado.")
+        
     supabase.table(TABLE_NAME).upsert(data, on_conflict="id").execute()
-    print(f"Status → {data.get('status')}")
+    print(f"Status → {data.get('status', '???')}")
+
+def extract_sec_uid_from_cookies(cookies):
+    """Tenta extrair o secUid de um cookie (geralmente sessionid ou tt_session)"""
+    # Padrão para secUid: MS4wLjABAAAA...
+    sec_uid_pattern = 'MS4wLjABAAAA'
+    
+    for cookie in cookies:
+        if cookie.get('name') == 'sessionid' or cookie.get('name') == 'tt_session':
+            value = cookie.get('value', '')
+            if value.startswith(sec_uid_pattern):
+                return value
+    return None
+
+def get_qr_code_base64(driver):
+    """Extrai o QR code atual do canvas e retorna a string base64."""
+    try:
+        canvas = driver.find_element(By.CSS_SELECTOR, "[data-e2e='qr-code'] canvas")
+        return driver.execute_script("return arguments[0].toDataURL('image/png');", canvas).split(",")[1]
+    except NoSuchElementException:
+        return None
+
+deadline = datetime.utcnow() + timedelta(minutes=TIMEOUT_MINUTES)
+current_qr_b64 = None
 
 try:
     driver.get("https://www.tiktok.com/login/qrcode")
-    print("Carregando página de login QR...")
+    print("Carregando QR Code...")
 
+    # Espera o QR inicial
     canvas = WebDriverWait(driver, 30).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, "[data-e2e='qr-code'] canvas"))
     )
 
-    # Envia QR inicial
-    qr_b64 = driver.execute_script("return arguments[0].toDataURL('image/png');", canvas).split(",")[1]
+    # Captura e envia QR inicial
+    current_qr_b64 = driver.execute_script("return arguments[0].toDataURL('image/png');", canvas).split(",")[1]
+    
     update({
-        "qrcode_base64": qr_b64,
+        "qrcode_base64": current_qr_b64,
         "status": "waiting_scan",
         "qrcode_expires_at": deadline.isoformat()
     })
+    print("QR enviado ao Supabase → waiting_scan")
 
     while True:
         now = datetime.utcnow()
 
-        # Timeout 5 minutos
+        # 1. Timeout de 5 minutos (local)
         if now >= deadline:
             update({"status": "expired"})
-            print("Sessão expirada (5 min)")
+            print("Tempo esgotado → status = expired")
             break
 
         url = driver.current_url.lower()
 
-        # Logado com sucesso
+        # 2. LOGADO COM SUCESSO
         if "login" not in url:
             cookies = driver.get_cookies()
+            sec_uid = extract_sec_uid_from_cookies(cookies)
+            
+            # Se logado, não ativamos o cooldown
             update({
                 "status": "logged",
                 "cookies": cookies,
                 "logged_at": now.isoformat(),
-                "closed_at": None
+                "sec_uid": sec_uid,
+                "unique_id": None, # O unique_id será recuperado na próxima chamada de API (fetchReposts)
+                "closed_at": None # Garante que o cooldown seja limpo
             })
-            print(f"LOGADO! {len(cookies)} cookies salvos no Supabase")
+            print(f"LOGADO! Sec UID: {sec_uid}. Cookies salvos no Supabase.")
+            time.sleep(5)
             break
 
-        # QR escaneado
+        # 3. QR ESCANEADO
         try:
-            el = driver.find_element(By.CSS_SELECTOR, "p.tiktok-awot1l-PCodeTip.eot7zvz17")
-            if el.is_displayed() and "scanned" in el.text.lower():
+            # Tentativa de encontrar o elemento que indica que o QR foi escaneado
+            txt = driver.find_element(By.CSS_SELECTOR, "p.tiktok-awot1l-PCodeTip.eot7zvz17")
+            if txt.is_displayed() and "scanned" in txt.text.lower():
                 update({"status": "scanned"})
-                print("QR escaneado → confirme no app")
-        except:
+        except NoSuchElementException:
             pass
 
-        # QR mudou ou expirou → renova
-        try:
-            new_b64 = driver.execute_script("return arguments[0].toDataURL('image/png');", driver.find_element(By.CSS_SELECTOR, "[data-e2e='qr-code'] canvas")).split(",")[1]
-            if new_b64 != qr_b64:
-                qr_b64 = new_b64
-                update({
-                    "qrcode_base64": qr_b64,
-                    "status": "waiting_scan"
-                })
-                print("Novo QR detectado e enviado")
-        except:
+        # 4. VERIFICAÇÃO DE MUDANÇA DO QR CODE OU EXPIRAÇÃO
+        new_qr_b64 = get_qr_code_base64(driver)
+        should_update = False
+        
+        if new_qr_b64 is None:
+            # O canvas sumiu (expirou no site). Força o refresh para obter um novo QR.
             if "login" in url:
-                print("QR sumiu → refresh")
+                print("QR expirou no site (canvas sumiu) → gerando novo...")
                 driver.refresh()
-                canvas = WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "[data-e2e='qr-code'] canvas")))
-                qr_b64 = driver.execute_script("return arguments[0].toDataURL('image/png');", canvas).split(",")[1]
-                update({"qrcode_base64": qr_b64, "status": "waiting_scan"})
+                
+                # Espera o novo canvas aparecer
+                canvas = WebDriverWait(driver, 20).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "[data-e2e='qr-code'] canvas"))
+                )
+                new_qr_b64 = driver.execute_script("return arguments[0].toDataURL('image/png');", canvas).split(",")[1]
+                should_update = True
+        
+        elif new_qr_b64 != current_qr_b64:
+            # O QR code mudou (rotação interna do TikTok)
+            print("QR Code detectado como alterado. Enviando novo QR para Supabase.")
+            should_update = True
 
-        time.sleep(1.3)
+        if should_update:
+            current_qr_b64 = new_qr_b64
+            # Mantemos o deadline original
+            update({
+                "qrcode_base64": current_qr_b64,
+                "status": "waiting_scan",
+                "qrcode_expires_at": deadline.isoformat()
+            })
+            print("Novo QR enviado (deadline mantido)")
+
+
+        time.sleep(1.2)
 
 except Exception as e:
-    update({"status": "error", "error_message": str(e)})
-    print(f"Erro crítico: {e}")
+    if hasattr(e, 'message') and isinstance(e.message, dict):
+        error_message = e.message.get('message', str(e))
+    else:
+        error_message = str(e)
+        
+    update({"status": "error", "error_message": error_message})
+    print(f"Erro: {e}")
 finally:
     driver.quit()
-    print("Script finalizado.")
+    print("Script finalizado com sucesso.")
