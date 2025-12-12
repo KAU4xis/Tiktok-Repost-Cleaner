@@ -25,7 +25,7 @@ jobs:
       - name: Instalar dependências Python
         run: |
           python -m pip install --upgrade pip
-          pip install selenium supabase-py
+          pip install selenium supabase
 
       - name: Instalar Chrome + ChromeDriver
         uses: browser-actions/setup-chrome@latest
@@ -46,3 +46,4 @@ jobs:
       - name: Workflow finalizado
         if: always()
         run: echo "Workflow concluído para sessão ${{ inputs.session_id }}"
+
