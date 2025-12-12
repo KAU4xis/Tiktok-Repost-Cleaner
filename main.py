@@ -31,6 +31,10 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # ==================== CONFIGURA CHROME ====================
 options = webdriver.ChromeOptions()
 
+# Define um User-Agent comum para evitar detecção de headless
+COMMON_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+options.add_argument(f"user-agent={COMMON_USER_AGENT}")
+
 # Detecta se está no GitHub Actions
 if os.getenv("GITHUB_ACTIONS") == "true":
     print("GitHub Actions detectado → modo headless")
@@ -39,6 +43,11 @@ if os.getenv("GITHUB_ACTIONS") == "true":
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
+    # Argumentos extras para tentar evitar detecção de bot
+    options.add_argument("--disable-features=site-per-process")
+    options.add_argument("--lang=en-US")
+    options.add_argument("--disable-setuid-sandbox")
+    options.add_argument("--disable-web-security")
 else:
     print("Rodando localmente → janela visível")
     options.add_argument("--start-maximized")
