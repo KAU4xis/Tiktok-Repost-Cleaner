@@ -26,7 +26,7 @@ jobs:
       - name: Instalar dependências (com undetected-chromedriver)
         run: |
           python -m pip install --upgrade pip
-          pip install undetected-chromedriver selenium supabase-py
+          pip install undetected-chromedriver selenium supabase
 
       - name: Instalar Chrome mais recente (necessário pro undetected-chromedriver)
         uses: browser-actions/setup-chrome@latest
@@ -48,3 +48,4 @@ jobs:
         if: always()
         run: |
           echo "Login finalizado para sessão ${{ inputs.session_id }}"
+
