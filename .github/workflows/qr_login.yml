@@ -45,4 +45,4 @@ jobs:
 
       - name: Workflow finalizado
         if: always()
-        run: echo "Workflow concluído para sessão: ${{ inputs.session_id }}"
+        run: echo "Workflow concluído para sessão ${{ inputs.session_id }}"
