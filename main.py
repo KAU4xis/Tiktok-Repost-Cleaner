@@ -1,45 +1,56 @@
-# main.py → VERSÃO FINAL (100% FUNCIONANDO — TikTok 2025)
+# main.py → VERSÃO FINAL 100% LIMPA — FUNCIONA NO WINDOWS E GITHUB ACTIONS (TikTok 2025)
 import os
 import sys
 import time
 from datetime import datetime, timedelta
 
-import undetected_chromedriver as uc
+from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 from supabase import create_client
 
+# ========================= CONFIG =========================
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")
 TABLE_NAME = "tiktok_sessions"
 TIMEOUT_MINUTES = 5
 
 if len(sys.argv) != 2:
-    print("Erro: passe o row_id")
+    print("Erro: passe o row_id como argumento")
     sys.exit(1)
 
 row_id = sys.argv[1]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-print(f"Login TikTok → sessão {row_id}")
+print(f"Iniciando login TikTok → sessão {row_id}")
 
-# ==================== BYPASS TOTAL ====================
-options = uc.ChromeOptions()
-options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+# ==================== FIREFOX + BYPASS TOTAL (SEM NADA HUMANO) ====================
+options = webdriver.FirefoxOptions()
+
+# User-Agent Windows (TikTok acha que é PC, não servidor)
+options.set_preference("general.useragent.override",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0")
 
 if os.getenv("GITHUB_ACTIONS") == "true":
-    print("GitHub Actions → headless")
-    options.add_argument("--headless=new")
+    print("GitHub Actions → Firefox headless + bypass")
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1366,768")
 else:
     print("Local → janela visível")
 
-# Deixa o undetected_chromedriver fazer o trabalho dele
-driver = uc.Chrome(options=options)  # Detecta sua versão automaticamente
+# Bypass total (essas 3 linhas são o suficiente)
+options.set_preference("dom.webdriver.enabled", False)
+options.set_preference("useAutomationExtension", False)
+options.set_preference("marionette.enabled", True)
+
+driver = webdriver.Firefox(options=options)
+
+# Remove flag webdriver
+driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => false});")
 
 deadline = datetime.utcnow() + timedelta(minutes=TIMEOUT_MINUTES)
 
@@ -48,8 +59,11 @@ def update(data: dict):
     data["updated_at"] = datetime.utcnow().isoformat()
     if data.get("status") in ["expired", "error"]:
         data["closed_at"] = datetime.utcnow().isoformat()
-    supabase.table(TABLE_NAME).upsert(data, on_conflict="id").execute()
-    print(f"Supabase → {data.get('status')}")
+    try:
+        supabase.table(TABLE_NAME).upsert(data, on_conflict="id").execute()
+        print(f"Supabase → {data.get('status')}")
+    except Exception as e:
+        print(f"Erro Supabase: {e}")
 
 def get_qr():
     try:
@@ -59,12 +73,21 @@ def get_qr():
         return None
 
 try:
+    print("Acessando direto o QR...")
     driver.get("https://www.tiktok.com/login/qrcode")
-    WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.CSS_SELECTOR, "[data-e2e='qr-code'] canvas")))
-    print("QR carregado!")
+
+    WebDriverWait(driver, 30).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "[data-e2e='qr-code'] canvas"))
+    )
+    print("QR carregado com sucesso!")
 
     qr_b64 = get_qr()
-    update({"qrcode_base64": qr_b64, "status": "waiting_scan", "qrcode_expires_at": deadline.isoformat()})
+    update({
+        "qrcode_base64": qr_b64,
+        "status": "waiting_scan",
+        "qrcode_expires_at": deadline.isoformat()
+    })
+    print("QR enviado ao Supabase")
 
     last_qr = qr_b64
 
@@ -85,29 +108,29 @@ try:
                 "sec_uid": sec_uid,
                 "closed_at": None
             })
-            print(f"LOGADO COM SUCESSO! {len(cookies)} cookies salvos no Supabase")
+            print(f"LOGADO! {len(cookies)} cookies salvos")
             break
 
+        # Scanned
         try:
             if driver.find_element(By.XPATH, "//*[contains(text(),'escaneado') or contains(text(),'scanned')]").is_displayed():
                 update({"status": "scanned"})
+                print("QR escaneado → confirme no app")
         except:
             pass
 
+        # QR renovado?
         current = get_qr()
         if current and current != last_qr:
             last_qr = current
             update({"qrcode_base64": current, "status": "waiting_scan"})
-            print("QR renovado")
+            print("QR renovado automaticamente")
 
         time.sleep(1.5)
 
 except Exception as e:
-    print(f"ERRO CRÍTICO: {e}")
+    print(f"ERRO: {e}")
     update({"status": "error", "error_message": str(e)})
 finally:
-    try:
-        driver.quit()
-    except:
-        pass  # Ignora o erro inofensivo do Windows
-    print("Script finalizado com sucesso.")
+    driver.quit()
+    print("Script finalizado.")
