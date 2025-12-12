@@ -12,6 +12,7 @@ jobs:
   run_qr_login:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
     steps:
       - name: Checkout do repositório
         uses: actions/checkout@v4
@@ -26,22 +27,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install selenium supabase-py
 
-      - name: Instalar Chrome + ChromeDriver (automático)
+      - name: Instalar Chrome + ChromeDriver
         uses: browser-actions/setup-chrome@latest
         id: chrome
 
-      - name: Ver versão do Chrome instalada
+      - name: Ver versão do Chrome
         run: ${{ steps.chrome.outputs.chrome-path }} --version
 
-      - name: Executar o script de login QR
+      - name: Executar script de login QR
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SESSION_ID: ${{ inputs.session_id }}
         run: |
           echo "Iniciando login QR para sessão: $SESSION_ID"
-          python tiktok_qr_actions.py "$SESSION_ID"
+          python main.py "$SESSION_ID"
 
-      - name: Finalizado
+      - name: Workflow finalizado
         if: always()
-        run: echo "Workflow finalizado. Status da sessão: $SESSION_ID"
+        run: echo "Workflow concluído para sessão: ${{ inputs.session_id }}"
