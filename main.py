@@ -1,4 +1,4 @@
-# main.py → VERSÃO FINAL 100% LIMPA — FUNCIONA NO WINDOWS E GITHUB ACTIONS (TikTok 2025)
+# main.py → FUNCIONA 100% NO GITHUB ACTIONS E WINDOWS — SEM POPUP
 import os
 import sys
 import time
@@ -18,7 +18,7 @@ TABLE_NAME = "tiktok_sessions"
 TIMEOUT_MINUTES = 5
 
 if len(sys.argv) != 2:
-    print("Erro: passe o row_id como argumento")
+    print("Erro: passe o row_id")
     sys.exit(1)
 
 row_id = sys.argv[1]
@@ -26,30 +26,23 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 print(f"Iniciando login TikTok → sessão {row_id}")
 
-# ==================== FIREFOX + BYPASS TOTAL (SEM NADA HUMANO) ====================
+# ==================== FIREFOX COM BYPASS PERFEITO ====================
 options = webdriver.FirefoxOptions()
-
-# User-Agent Windows (TikTok acha que é PC, não servidor)
-options.set_preference("general.useragent.override",
+options.set_preference("general.useragent.override", 
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0")
 
 if os.getenv("GITHUB_ACTIONS") == "true":
-    print("GitHub Actions → Firefox headless + bypass")
+    print("GitHub Actions → Firefox headless")
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1366,768")
 else:
     print("Local → janela visível")
 
-# Bypass total (essas 3 linhas são o suficiente)
 options.set_preference("dom.webdriver.enabled", False)
 options.set_preference("useAutomationExtension", False)
-options.set_preference("marionette.enabled", True)
 
 driver = webdriver.Firefox(options=options)
-
-# Remove flag webdriver
 driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => false});")
 
 deadline = datetime.utcnow() + timedelta(minutes=TIMEOUT_MINUTES)
@@ -59,11 +52,8 @@ def update(data: dict):
     data["updated_at"] = datetime.utcnow().isoformat()
     if data.get("status") in ["expired", "error"]:
         data["closed_at"] = datetime.utcnow().isoformat()
-    try:
-        supabase.table(TABLE_NAME).upsert(data, on_conflict="id").execute()
-        print(f"Supabase → {data.get('status')}")
-    except Exception as e:
-        print(f"Erro Supabase: {e}")
+    supabase.table(TABLE_NAME).upsert(data, on_conflict="id").execute()
+    print(f"Supabase → {data.get('status')}")
 
 def get_qr():
     try:
@@ -73,9 +63,17 @@ def get_qr():
         return None
 
 try:
-    print("Acessando direto o QR...")
-    driver.get("https://www.tiktok.com/login/qrcode")
+    # PASSO 1: ACESSA PÁGINA INICIAL PRIMEIRO (OBRIGATÓRIO NO ACTIONS)
+    print("Acessando página inicial para enganar o TikTok...")
+    driver.get("https://www.tiktok.com")
+    time.sleep(3)
 
+    # PASSO 2: VAI PRO QR
+    print("Indo para QR Code...")
+    driver.get("https://www.tiktok.com/login/qrcode")
+    time.sleep(2)
+
+    # Espera o QR aparecer
     WebDriverWait(driver, 30).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, "[data-e2e='qr-code'] canvas"))
     )
